@@ -1,32 +1,36 @@
 import requests
-from django.conf import settings
+
+
+SUPPORTED_LANGUAGES = [
+    'en', 'ar', 'fr', 'de', 'es', 'it', 'pt', 'ru',
+    'zh', 'ja', 'ko', 'tr', 'ur', 'hi', 'bn'
+]
 
 
 def detect_and_translate(text, target_language):
-    """Translate text to target language using LibreTranslate."""
     if not text or not text.strip():
         return text
-
+    if target_language not in SUPPORTED_LANGUAGES:
+        return text
     try:
-        response = requests.post(
-            f"{settings.LIBRETRANSLATE_URL}/translate",
-            json={
-                "q": text,
-                "source": "auto",
-                "target": target_language,
-                "format": "text"
+        response = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={
+                "q": text[:500],  # MyMemory limit
+                "langpair": f"en|{target_language}",
             },
-            timeout=5
+            timeout=10
         )
         if response.status_code == 200:
-            return response.json().get("translatedText", text)
+            data = response.json()
+            if data.get('responseStatus') == 200:
+                return data['responseData']['translatedText']
     except Exception:
         pass
     return text
 
 
 def get_or_create_translation(message, target_language):
-    """Get cached translation or create new one."""
     from .models import Translation
 
     if message.original_language == target_language:

@@ -13,30 +13,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         token = self.get_token_from_scope()
         self.user = await self.get_user_from_token(token)
-
         if not self.user:
             await self.close()
             return
-
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'chat_{self.room_name}'
-
-        # Check user has access to this room
         has_access = await self.check_access()
         if not has_access:
             await self.close()
             return
-
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.set_online(True)
         await self.accept()
-
-        # Send last 50 messages on connect
         messages = await self.get_recent_messages()
-        await self.send(text_data=json.dumps({
-            'type': 'history',
-            'messages': messages
-        }))
+        await self.send(text_data=json.dumps({'type': 'history', 'messages': messages}))
 
     async def disconnect(self, close_code):
         if hasattr(self, 'room_group_name'):
@@ -48,12 +38,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         msg_type = data.get('type', 'text')
         text = data.get('message', '')
-
         if not text.strip():
             return
-
         message = await self.save_message(text, msg_type)
-
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -64,9 +51,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'sender_username': self.user.username,
                 'message_type': msg_type,
                 'created_at': message['created_at'],
-                'original_language': message['original_language'],
+                'original_language': message.get('original_language', 'en'),
             }
         )
+
     async def chat_message(self, event):
         translated = await self.translate_for_user(
             event['message_id'],
@@ -83,7 +71,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'message_type': event['message_type'],
             'created_at': event['created_at'],
         }))
-    # ── Helpers ────────────────────────────────────────────────
 
     def get_token_from_scope(self):
         query_string = self.scope.get('query_string', b'').decode()
@@ -105,13 +92,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def check_access(self):
         try:
-            # room_name format: group_<id> or dm_<user_id>
             if self.room_name.startswith('group_'):
                 group_id = int(self.room_name.split('_')[1])
-                return Membership.objects.filter(
-                    user=self.user, group_id=group_id
-                ).exists()
-            return True  # DMs are open to any authenticated user
+                return Membership.objects.filter(user=self.user, group_id=group_id).exists()
+            return True
         except Exception:
             return False
 
@@ -121,45 +105,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'sender': self.user,
             'original_text': text,
             'message_type': msg_type,
+            'original_language': self.user.preferred_language,
         }
         if self.room_name.startswith('group_'):
-            group_id = int(self.room_name.split('_')[1])
-            kwargs['group_id'] = group_id
+            kwargs['group_id'] = int(self.room_name.split('_')[1])
         elif self.room_name.startswith('dm_'):
-            recipient_id = int(self.room_name.split('_')[1])
-            kwargs['recipient_id'] = recipient_id
-
+            kwargs['recipient_id'] = int(self.room_name.split('_')[1])
         msg = Message.objects.create(**kwargs)
-        return {
-            'id': msg.id,
-            'created_at': msg.created_at.isoformat(),
-        }
+        return {'id': msg.id, 'created_at': msg.created_at.isoformat(), 'original_language': msg.original_language}
 
     @database_sync_to_async
     def get_recent_messages(self):
         qs = Message.objects.filter(is_deleted=False).select_related('sender')
         if self.room_name.startswith('group_'):
-            group_id = int(self.room_name.split('_')[1])
-            qs = qs.filter(group_id=group_id)
+            qs = qs.filter(group_id=int(self.room_name.split('_')[1]))
         elif self.room_name.startswith('dm_'):
-            recipient_id = int(self.room_name.split('_')[1])
-            qs = qs.filter(recipient_id=recipient_id)
+            qs = qs.filter(recipient_id=int(self.room_name.split('_')[1]))
         qs = qs.order_by('-created_at')[:50]
-        return [
-            {
-                'id': m.id,
-                'message': m.original_text,
-                'sender_id': m.sender_id,
-                'sender_username': m.sender.username if m.sender else 'deleted',
-                'message_type': m.message_type,
-                'created_at': m.created_at.isoformat(),
-            }
-            for m in reversed(list(qs))
-        ]
+        return [{'id': m.id, 'message': m.original_text, 'sender_id': m.sender_id, 'sender_username': m.sender.username if m.sender else 'deleted', 'message_type': m.message_type, 'created_at': m.created_at.isoformat()} for m in reversed(list(qs))]
 
-    @database_sync_to_async
-    def set_online(self, status):
-        User.objects.filter(id=self.user.id).update(is_online=status)
     @database_sync_to_async
     def translate_for_user(self, message_id, original_text, original_language):
         from .translation import get_or_create_translation
@@ -172,3 +136,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return get_or_create_translation(msg, target)
         except Exception:
             return original_text
+
+    @database_sync_to_async
+    def set_online(self, status):
+        User.objects.filter(id=self.user.id).update(is_online=status)
