@@ -52,10 +52,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not text.strip():
             return
 
-        # Save message to DB
         message = await self.save_message(text, msg_type)
 
-        # Broadcast to group
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -66,20 +64,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'sender_username': self.user.username,
                 'message_type': msg_type,
                 'created_at': message['created_at'],
+                'original_language': message['original_language'],
             }
         )
-
     async def chat_message(self, event):
+        translated = await self.translate_for_user(
+            event['message_id'],
+            event['message'],
+            event.get('original_language', 'en')
+        )
         await self.send(text_data=json.dumps({
             'type': 'message',
             'message_id': event['message_id'],
-            'message': event['message'],
+            'message': translated,
+            'original_message': event['message'],
             'sender_id': event['sender_id'],
             'sender_username': event['sender_username'],
             'message_type': event['message_type'],
             'created_at': event['created_at'],
         }))
-
     # ── Helpers ────────────────────────────────────────────────
 
     def get_token_from_scope(self):
@@ -157,3 +160,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def set_online(self, status):
         User.objects.filter(id=self.user.id).update(is_online=status)
+    @database_sync_to_async
+    def translate_for_user(self, message_id, original_text, original_language):
+        from .translation import get_or_create_translation
+        from .models import Message
+        target = self.user.preferred_language
+        if target == original_language:
+            return original_text
+        try:
+            msg = Message.objects.get(id=message_id)
+            return get_or_create_translation(msg, target)
+        except Exception:
+            return original_text
