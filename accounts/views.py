@@ -115,3 +115,17 @@ def update_profile(request):
         user.username = request.data['username']
     user.save()
     return Response({'message': 'Profile updated.', 'preferred_language': user.preferred_language})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_detail(request, user_id):
+    try:
+        user = User.objects.get(id=user_id)
+        return Response({
+            'id': user.id,
+            'username': user.username,
+            'preferred_language': user.preferred_language,
+            'is_online': user.is_online,
+        })
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=404)
