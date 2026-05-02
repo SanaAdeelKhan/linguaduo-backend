@@ -1,23 +1,23 @@
 import requests
 
-
 SUPPORTED_LANGUAGES = [
     'en', 'ar', 'fr', 'de', 'es', 'it', 'pt', 'ru',
     'zh', 'ja', 'ko', 'tr', 'ur', 'hi', 'bn'
 ]
 
-
-def detect_and_translate(text, target_language):
+def detect_and_translate(text, source_language, target_language):
     if not text or not text.strip():
         return text
     if target_language not in SUPPORTED_LANGUAGES:
+        return text
+    if source_language == target_language:
         return text
     try:
         response = requests.get(
             "https://api.mymemory.translated.net/get",
             params={
-                "q": text[:500],  # MyMemory limit
-                "langpair": f"en|{target_language}",
+                "q": text[:500],
+                "langpair": f"{source_language}|{target_language}",
             },
             timeout=10
         )
@@ -29,11 +29,12 @@ def detect_and_translate(text, target_language):
         pass
     return text
 
-
 def get_or_create_translation(message, target_language):
     from .models import Translation
 
-    if message.original_language == target_language:
+    source_language = message.original_language or 'en'
+
+    if source_language == target_language:
         return message.original_text
 
     translation, created = Translation.objects.get_or_create(
@@ -42,6 +43,7 @@ def get_or_create_translation(message, target_language):
         defaults={
             'translated_text': detect_and_translate(
                 message.original_text,
+                source_language,
                 target_language
             )
         }
