@@ -12,28 +12,38 @@ def detect_and_translate(text, source_language, target_language):
         return text
     if source_language == target_language:
         return text
+
     try:
         response = requests.get(
-            "https://api.mymemory.translated.net/get",
+            "https://translate.googleapis.com/translate_a/single",
             params={
+                "client": "gtx",
+                "sl": "auto",        # auto-detect source language!
+                "tl": target_language,
+                "dt": "t",
                 "q": text[:500],
-                "langpair": f"{source_language}|{target_language}",
+            },
+            headers={
+                "User-Agent": "Mozilla/5.0"
             },
             timeout=10
         )
         if response.status_code == 200:
             data = response.json()
-            if data.get('responseStatus') == 200:
-                return data['responseData']['translatedText']
+            # Response format: [[[translated, original, ...], ...], ...]
+            translated = "".join(
+                part[0] for part in data[0] if part[0]
+            )
+            if translated and translated.strip().lower() != text.strip().lower():
+                return translated
     except Exception:
         pass
     return text
 
+
 def get_or_create_translation(message, target_language):
     from .models import Translation
-
     source_language = message.original_language or 'en'
-
     if source_language == target_language:
         return message.original_text
 

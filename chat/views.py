@@ -11,10 +11,8 @@ User = get_user_model()
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def conversations(request):
-    """Get all conversations (DMs + groups) for current user."""
     user = request.user
 
-    # Get all users this person has DM'd with
     sent = Message.objects.filter(sender=user, group=None).values_list('recipient_id', flat=True)
     received = Message.objects.filter(recipient=user, group=None).values_list('sender_id', flat=True)
     dm_user_ids = set(list(sent) + list(received)) - {user.id}
@@ -43,7 +41,6 @@ def conversations(request):
             'room_name': f'dm_{other.id}',
         })
 
-    # Get all groups user is in
     memberships = Membership.objects.filter(user=user).select_related('group')
     group_list = []
     for m in memberships:
@@ -62,16 +59,12 @@ def conversations(request):
             'room_name': f'group_{m.group.id}',
         })
 
-    return Response({
-        'dms': dm_list,
-        'groups': group_list,
-    })
+    return Response({'dms': dm_list, 'groups': group_list})
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def users_list(request):
-    """Search or list all users to start a conversation."""
     query = request.GET.get('q', '').strip()
     users = User.objects.exclude(id=request.user.id)
     if query:
@@ -91,7 +84,6 @@ def users_list(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def message_history(request, room_name):
-    """Get paginated message history for a room."""
     user = request.user
     page = int(request.GET.get('page', 1))
     page_size = 50
@@ -146,10 +138,10 @@ def message_history(request, room_name):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_group(request):
-    """Create a new group or study group."""
     name = request.data.get('name', '').strip()
     description = request.data.get('description', '')
     is_study_group = request.data.get('is_study_group', False)
+    member_ids = request.data.get('member_ids', [])  # list of user IDs to invite
 
     if not name:
         return Response({'error': 'Group name is required.'}, status=400)
@@ -160,21 +152,34 @@ def create_group(request):
         is_study_group=is_study_group,
         created_by=request.user
     )
+    # Creator is admin
     Membership.objects.create(user=request.user, group=group, role='admin')
 
+    # Add invited members
+    for uid in member_ids:
+        if uid == request.user.id:
+            continue
+        member = User.objects.filter(id=uid).first()
+        if member:
+            Membership.objects.get_or_create(user=member, group=group, defaults={'role': 'member'})
+
+    members = Membership.objects.filter(group=group).select_related('user')
     return Response({
         'id': group.id,
         'name': group.name,
         'description': group.description,
         'is_study_group': group.is_study_group,
         'room_name': f'group_{group.id}',
+        'members': [
+            {'id': m.user.id, 'username': m.user.username, 'role': m.role}
+            for m in members
+        ],
     }, status=201)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def join_group(request, group_id):
-    """Join an existing group."""
     group = Group.objects.filter(id=group_id).first()
     if not group:
         return Response({'error': 'Group not found.'}, status=404)
@@ -190,10 +195,98 @@ def join_group(request, group_id):
     return Response({'message': f'Joined {group.name} successfully.'})
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_member(request, group_id):
+    """Admin only — add a member to a group."""
+    group = Group.objects.filter(id=group_id).first()
+    if not group:
+        return Response({'error': 'Group not found.'}, status=404)
+
+    is_admin = Membership.objects.filter(user=request.user, group=group, role='admin').exists()
+    if not is_admin:
+        return Response({'error': 'Only admins can add members.'}, status=403)
+
+    user_id = request.data.get('user_id')
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        return Response({'error': 'User not found.'}, status=404)
+
+    membership, created = Membership.objects.get_or_create(
+        user=user, group=group, defaults={'role': 'member'}
+    )
+    if not created:
+        return Response({'message': 'User is already a member.'})
+
+    return Response({'message': f'{user.username} added to {group.name}.'})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def remove_member(request, group_id, user_id):
+    """Admin only — remove a member from a group."""
+    group = Group.objects.filter(id=group_id).first()
+    if not group:
+        return Response({'error': 'Group not found.'}, status=404)
+
+    is_admin = Membership.objects.filter(user=request.user, group=group, role='admin').exists()
+    if not is_admin:
+        return Response({'error': 'Only admins can remove members.'}, status=403)
+
+    if user_id == request.user.id:
+        return Response({'error': 'Admin cannot remove themselves.'}, status=400)
+
+    deleted, _ = Membership.objects.filter(user_id=user_id, group=group).delete()
+    if deleted:
+        return Response({'message': 'Member removed.'})
+    return Response({'error': 'Member not found.'}, status=404)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def rename_group(request, group_id):
+    """Admin only — rename a group."""
+    group = Group.objects.filter(id=group_id).first()
+    if not group:
+        return Response({'error': 'Group not found.'}, status=404)
+
+    is_admin = Membership.objects.filter(user=request.user, group=group, role='admin').exists()
+    if not is_admin:
+        return Response({'error': 'Only admins can rename the group.'}, status=403)
+
+    new_name = request.data.get('name', '').strip()
+    if not new_name:
+        return Response({'error': 'Name cannot be empty.'}, status=400)
+
+    group.name = new_name
+    group.save()
+    return Response({'message': 'Group renamed.', 'name': group.name})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def group_members(request, group_id):
+    """List all members of a group."""
+    group = Group.objects.filter(id=group_id).first()
+    if not group:
+        return Response({'error': 'Group not found.'}, status=404)
+
+    members = Membership.objects.filter(group=group).select_related('user')
+    return Response([
+        {
+            'id': m.user.id,
+            'username': m.user.username,
+            'preferred_language': m.user.preferred_language,
+            'is_online': m.user.is_online,
+            'role': m.role,
+        }
+        for m in members
+    ])
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def group_list(request):
-    """List all public groups to browse and join."""
     groups = Group.objects.all().order_by('-created_at')[:20]
     return Response([
         {
