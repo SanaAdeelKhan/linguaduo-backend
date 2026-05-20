@@ -1,14 +1,7 @@
 import requests
 
-SUPPORTED_LANGUAGES = [
-    'en', 'ar', 'fr', 'de', 'es', 'it', 'pt', 'ru',
-    'zh', 'ja', 'ko', 'tr', 'ur', 'hi', 'bn'
-]
-
 def detect_and_translate(text, source_language, target_language):
     if not text or not text.strip():
-        return text
-    if target_language not in SUPPORTED_LANGUAGES:
         return text
     if source_language == target_language:
         return text
@@ -86,7 +79,7 @@ def get_or_create_translation(message, target_language):
     ).first()
     if existing:
         if existing.translated_text.strip() == message.original_text.strip():
-            existing.delete()  # delete bad cache, re-translate
+            existing.delete()
         else:
             return existing.translated_text
 
