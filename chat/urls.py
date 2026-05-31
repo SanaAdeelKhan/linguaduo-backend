@@ -12,4 +12,5 @@ urlpatterns = [
     path('groups/<int:group_id>/add-member/', views.add_member, name='add_member'),
     path('groups/<int:group_id>/remove-member/<int:user_id>/', views.remove_member, name='remove_member'),
     path('groups/<int:group_id>/rename/', views.rename_group, name='rename_group'),
+    path('upload-audio/', views.upload_audio, name='upload_audio'),
 ]

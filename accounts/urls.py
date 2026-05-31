@@ -10,4 +10,9 @@ urlpatterns = [
     path('profile/', views.update_profile, name='update_profile'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('users/<int:user_id>/', views.user_detail, name='user_detail'),
+
+    # New security routes
+    path('verify-email/<uuid:token>/', views.verify_email, name='verify_email'),
+    path('resend-verification/', views.resend_verification, name='resend_verification'),
+    path('google-login/', views.google_login, name='google_login'),
 ]

@@ -299,3 +299,38 @@ def group_list(request):
         }
         for g in groups
     ])
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_audio(request):
+    """Upload voice message to Cloudinary and return URL."""
+    import cloudinary
+    import cloudinary.uploader
+    from django.conf import settings
+
+    audio_file = request.FILES.get('audio')
+    if not audio_file:
+        return Response({'error': 'No audio file provided.'}, status=400)
+
+    if audio_file.size > 10 * 1024 * 1024:
+        return Response({'error': 'File too large. Max 10MB.'}, status=400)
+
+    try:
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+        )
+        result = cloudinary.uploader.upload(
+            audio_file,
+            resource_type='video',
+            folder='linguaduo/voice_messages',
+        )
+        return Response({
+            'url': result['secure_url'],
+            'duration': result.get('duration', 0),
+            'public_id': result['public_id'],
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
