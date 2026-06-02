@@ -1,6 +1,6 @@
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from .models import Contact
@@ -79,3 +79,62 @@ def remove_contact(request, contact_id):
         return Response({'message': 'Contact removed'})
     except Contact.DoesNotExist:
         return Response({'error': 'Contact not found'}, status=404)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_users(request):
+    query = request.GET.get('q', '').strip()
+    if len(query) < 2:
+        return Response({'error': 'Query too short'}, status=400)
+    users = User.objects.filter(
+        username__icontains=query
+    ).exclude(id=request.user.id)[:10]
+    results = []
+    for u in users:
+        contact_status = None
+        contact = Contact.objects.filter(
+            sender=request.user, receiver=u
+        ).first() or Contact.objects.filter(
+            sender=u, receiver=request.user
+        ).first()
+        if contact:
+            contact_status = contact.status
+            if contact.status == 'accepted':
+                contact_status = 'accepted'
+            elif contact.sender == request.user:
+                contact_status = 'sent'
+            else:
+                contact_status = 'received'
+        results.append({
+            'id': u.id,
+            'username': u.username,
+            'preferred_language': u.preferred_language,
+            'is_online': u.is_online,
+            'contact_status': contact_status,
+        })
+    return Response(results)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_invite_link(request):
+    token = str(request.user.invite_token)
+    return Response({'invite_token': token})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def accept_invite(request):
+    token = request.data.get('token')
+    try:
+        inviter = User.objects.get(invite_token=token)
+    except User.DoesNotExist:
+        return Response({'error': 'Invalid invite link'}, status=404)
+    if inviter == request.user:
+        return Response({'error': 'Cannot add yourself'}, status=400)
+    contact, created = Contact.objects.get_or_create(
+        sender=inviter,
+        receiver=request.user,
+        defaults={'status': 'accepted'}
+    )
+    if not created:
+        return Response({'error': 'Already connected'}, status=400)
+    return Response({'message': f'You are now connected with {inviter.username}!'})

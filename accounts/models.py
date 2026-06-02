@@ -26,6 +26,7 @@ class User(AbstractUser):
     # Email verification
     is_email_verified = models.BooleanField(default=False)
     email_verify_token = models.UUIDField(default=uuid.uuid4, editable=False)
+    invite_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username']
