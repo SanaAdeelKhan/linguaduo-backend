@@ -241,3 +241,4 @@ DEFAULT_FROM_EMAIL = f'LinguaDuo <{config("EMAIL_HOST_USER", default="")}>'
 # Google OAuth
 # ─────────────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
+FRONTEND_URL = config('FRONTEND_URL', default='https://thelinguaduo.netlify.app')

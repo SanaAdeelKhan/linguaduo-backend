@@ -3,6 +3,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
+from django.conf import settings
 from .models import Contact
 from .serializers import ContactSerializer
 
@@ -138,3 +140,37 @@ def accept_invite(request):
     if not created:
         return Response({'error': 'Already connected'}, status=400)
     return Response({'message': f'You are now connected with {inviter.username}!'})
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def invite_by_email(request):
+    email = request.data.get('email', '').strip()
+    if not email:
+        return Response({'error': 'Email required'}, status=400)
+
+    # Check if already a LinguaDuo user
+    existing = User.objects.filter(email=email).first()
+    if existing:
+        # Just send a contact request instead
+        if existing == request.user:
+            return Response({'error': 'That is your own email'}, status=400)
+        contact, created = Contact.objects.get_or_create(
+            sender=request.user,
+            receiver=existing
+        )
+        if not created:
+            return Response({'error': 'Already connected or request sent'}, status=400)
+        return Response({'message': f'{existing.username} is already on LinguaDuo! Contact request sent.'})
+
+    # Not a user — send invite email
+    invite_token = str(request.user.invite_token)
+    from django.conf import settings as django_settings
+    frontend_url = getattr(django_settings, 'FRONTEND_URL', 'https://thelinguaduo.netlify.app')
+    invite_url = f"{frontend_url}/invite/{invite_token}"
+    send_mail(
+        subject=f"{request.user.username} invited you to LinguaDuo!",
+        message=f"{request.user.username} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+    return Response({'message': f'Invite sent to {email}!'})
