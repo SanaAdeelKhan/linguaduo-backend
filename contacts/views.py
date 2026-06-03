@@ -1,12 +1,12 @@
-from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
 from .models import Contact
 from .serializers import ContactSerializer
+import threading
 
 User = get_user_model()
 
@@ -33,7 +33,7 @@ def send_request(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def respond_request(request, contact_id):
-    action = request.data.get('action')  # 'accept' or 'reject'
+    action = request.data.get('action')
     try:
         contact = Contact.objects.get(id=contact_id, receiver=request.user, status='pending')
     except Contact.DoesNotExist:
@@ -71,10 +71,7 @@ def pending_requests(request):
 @permission_classes([IsAuthenticated])
 def remove_contact(request, contact_id):
     try:
-        contact = Contact.objects.get(
-            id=contact_id,
-            status='accepted'
-        )
+        contact = Contact.objects.get(id=contact_id, status='accepted')
         if contact.sender != request.user and contact.receiver != request.user:
             return Response({'error': 'Not your contact'}, status=403)
         contact.delete()
@@ -100,7 +97,6 @@ def search_users(request):
             sender=u, receiver=request.user
         ).first()
         if contact:
-            contact_status = contact.status
             if contact.status == 'accepted':
                 contact_status = 'accepted'
             elif contact.sender == request.user:
@@ -140,6 +136,7 @@ def accept_invite(request):
     if not created:
         return Response({'error': 'Already connected'}, status=400)
     return Response({'message': f'You are now connected with {inviter.username}!'})
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def invite_by_email(request):
@@ -147,10 +144,8 @@ def invite_by_email(request):
     if not email:
         return Response({'error': 'Email required'}, status=400)
 
-    # Check if already a LinguaDuo user
     existing = User.objects.filter(email=email).first()
     if existing:
-        # Just send a contact request instead
         if existing == request.user:
             return Response({'error': 'That is your own email'}, status=400)
         contact, created = Contact.objects.get_or_create(
@@ -161,16 +156,23 @@ def invite_by_email(request):
             return Response({'error': 'Already connected or request sent'}, status=400)
         return Response({'message': f'{existing.username} is already on LinguaDuo! Contact request sent.'})
 
-    # Not a user — send invite email
     invite_token = str(request.user.invite_token)
-    from django.conf import settings as django_settings
-    frontend_url = getattr(django_settings, 'FRONTEND_URL', 'https://thelinguaduo.netlify.app')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://thelinguaduo.netlify.app')
     invite_url = f"{frontend_url}/invite/{invite_token}"
-    send_mail(
-        subject=f"{request.user.username} invited you to LinguaDuo!",
-        message=f"{request.user.username} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-    )
+    from_email = settings.DEFAULT_FROM_EMAIL
+    sender_name = request.user.username
+
+    def send_async():
+        try:
+            send_mail(
+                subject=f"{sender_name} invited you to LinguaDuo!",
+                message=f"{sender_name} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!",
+                from_email=from_email,
+                recipient_list=[email],
+                fail_silently=True,
+            )
+        except Exception:
+            pass
+
+    threading.Thread(target=send_async).start()
     return Response({'message': f'Invite sent to {email}!'})
