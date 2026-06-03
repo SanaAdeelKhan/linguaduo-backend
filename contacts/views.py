@@ -161,15 +161,15 @@ def invite_by_email(request):
     invite_url = f"{frontend_url}/invite/{invite_token}"
     from_email = settings.DEFAULT_FROM_EMAIL
     sender_name = request.user.username
+    subject = f"{sender_name} invited you to LinguaDuo!"
+    message = f"{sender_name} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!"
+
     def send_async():
         try:
-            send_mail(
-                subject=f"{sender_name} invited you to LinguaDuo!",
-                message=f"{sender_name} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!",
-                from_email=from_email,
-                recipient_list=[email],
-                fail_silently=False,
-            )
+            send_mail(subject, message, from_email, [email], fail_silently=False)
             print(f"EMAIL SENT OK to {email}")
         except Exception as e:
             print(f"EMAIL ERROR: {e}")
+
+    threading.Thread(target=send_async, daemon=True).start()
+    return Response({'message': f'Invite sent to {email}!'})
