@@ -165,15 +165,18 @@ def invite_by_email(request):
     message = f"{sender_name} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!"
 
     def send_async():
-    try:
-        import resend
-        resend.api_key = settings.RESEND_API_KEY
-        resend.Emails.send({
-            "from": "LinguaDuo <onboarding@resend.dev>",
-            "to": [email],
-            "subject": subject,
-            "text": message,
-        })
-        print(f"EMAIL SENT OK to {email}")
-    except Exception as e:
-        print(f"EMAIL ERROR: {e}")
+        try:
+            import resend
+            resend.api_key = settings.RESEND_API_KEY
+            resend.Emails.send({
+                "from": "LinguaDuo <onboarding@resend.dev>",
+                "to": [email],
+                "subject": subject,
+                "text": message,
+            })
+            print(f"EMAIL SENT OK to {email}")
+        except Exception as e:
+            print(f"EMAIL ERROR: {e}")
+
+    threading.Thread(target=send_async, daemon=True).start()
+    return Response({'message': f'Invite sent to {email}!'})
