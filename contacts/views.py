@@ -159,21 +159,13 @@ def invite_by_email(request):
     invite_token = str(request.user.invite_token)
     frontend_url = getattr(settings, 'FRONTEND_URL', 'https://thelinguaduo.netlify.app')
     invite_url = f"{frontend_url}/invite/{invite_token}"
-    from_email = settings.DEFAULT_FROM_EMAIL
     sender_name = request.user.username
     subject = f"{sender_name} invited you to LinguaDuo!"
     message = f"{sender_name} wants to connect with you on LinguaDuo — a language learning chat app.\n\nClick the link below to join and connect:\n{invite_url}\n\nSee you there!"
 
     def send_async():
         try:
-            import resend
-            resend.api_key = settings.RESEND_API_KEY
-            resend.Emails.send({
-                "from": "LinguaDuo <onboarding@resend.dev>",
-                "to": [email],
-                "subject": subject,
-                "text": message,
-            })
+            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
             print(f"EMAIL SENT OK to {email}")
         except Exception as e:
             print(f"EMAIL ERROR: {e}")
