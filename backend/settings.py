@@ -228,15 +228,15 @@ CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
 
 # ─────────────────────────────────────────────────────────────
-# Email (Resend SMTP)
+# Email (Brevo SMTP)
 # ─────────────────────────────────────────────────────────────
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.resend.com'
+EMAIL_HOST = 'smtp-relay.brevo.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'resend'
-EMAIL_HOST_PASSWORD = config('RESEND_API_KEY', default='')
-DEFAULT_FROM_EMAIL = 'LinguaDuo <onboarding@resend.dev>'
+EMAIL_HOST_USER = config('BREVO_SMTP_USER', default='')
+EMAIL_HOST_PASSWORD = config('BREVO_SMTP_KEY', default='')
+DEFAULT_FROM_EMAIL = 'LinguaDuo <sanaadeel493@gmail.com>'
 
 # ─────────────────────────────────────────────────────────────
 # Google OAuth
