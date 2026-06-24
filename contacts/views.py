@@ -7,6 +7,7 @@ from django.conf import settings
 from .models import Contact
 from .serializers import ContactSerializer
 import threading
+import requests
 
 User = get_user_model()
 
@@ -165,8 +166,23 @@ def invite_by_email(request):
 
     def send_async():
         try:
-            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
-            print(f"EMAIL SENT OK to {email}")
+            response = requests.post(
+                'https://api.brevo.com/v3/smtp/email',
+                headers={
+                    'api-key': settings.BREVO_API_KEY,
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'sender': {'name': 'LinguaDuo', 'email': 'sanaadeel493@gmail.com'},
+                    'to': [{'email': email}],
+                    'subject': subject,
+                    'textContent': message,
+                }
+            )
+            if response.status_code == 201:
+                print(f"EMAIL SENT OK to {email}")
+            else:
+                print(f"EMAIL ERROR: {response.status_code} {response.text}")
         except Exception as e:
             print(f"EMAIL ERROR: {e}")
 

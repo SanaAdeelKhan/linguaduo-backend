@@ -238,6 +238,7 @@ EMAIL_USE_SSL = True
 EMAIL_HOST_USER = config('BREVO_SMTP_USER', default='')
 EMAIL_HOST_PASSWORD = config('BREVO_SMTP_KEY', default='')
 DEFAULT_FROM_EMAIL = 'LinguaDuo <sanaadeel493@gmail.com>'
+BREVO_API_KEY = config('BREVO_API_KEY', default='')
 
 # ─────────────────────────────────────────────────────────────
 # Google OAuth
