@@ -1,15 +1,47 @@
 # accounts/sso.py
 import os
+from decouple import config
 from django.contrib.auth import get_user_model
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
+from contacts.models import Contact
 
 User = get_user_model()
 
-GB_SSO_SECRET = os.environ.get('GB_SSO_SECRET', '')
+GB_SSO_SECRET = config('GB_SSO_SECRET', default='')
+
+
+def _find_or_create_user(email, username='', full_name=''):
+    user, created = User.objects.get_or_create(
+        email=email,
+        defaults={
+            'username': _unique_username(username or email.split('@')[0]),
+            'first_name': full_name.split(' ')[0] if full_name else '',
+            'last_name': ' '.join(full_name.split(' ')[1:]) if full_name else '',
+            'is_email_verified': True,
+        }
+    )
+    return user, created
+
+
+def _auto_add_contact(user_a, user_b):
+    """Create mutual accepted contact between two users if not already exists."""
+    # Check both directions
+    exists = Contact.objects.filter(
+        sender=user_a, receiver=user_b
+    ).exists() or Contact.objects.filter(
+        sender=user_b, receiver=user_a
+    ).exists()
+
+    if not exists:
+        Contact.objects.create(
+            sender=user_a,
+            receiver=user_b,
+            status='accepted'
+        )
 
 
 @api_view(['POST'])
@@ -17,46 +49,32 @@ GB_SSO_SECRET = os.environ.get('GB_SSO_SECRET', '')
 def gazabridge_sso_login(request):
     """
     Called by GazaBridge backend to auto-login/register a GB user in LinguaDuo.
-    Payload: { email, username, full_name, shared_secret }
-    Returns: { access, refresh, user: { id, email, username, preferred_language, is_online } }
+    Payload: { email, username, full_name, shared_secret, target_email (optional) }
+    Returns: { access, refresh, user, target_ld_id (optional) }
     """
     data = request.data
 
     # Validate shared secret
     if not GB_SSO_SECRET or data.get('shared_secret') != GB_SSO_SECRET:
-        return Response(
-            {'error': 'Unauthorized'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+        return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    email = data.get('email', '').strip().lower()
-    username = data.get('username', '').strip()
-    full_name = data.get('full_name', '').strip()
+    email = (data.get('email') or '').strip().lower()
+    username = (data.get('username') or '').strip()
+    full_name = (data.get('full_name') or '').strip()
+    target_email = (data.get('target_email') or '').strip().lower()
 
     if not email:
-        return Response(
-            {'error': 'Email is required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Find or create user by email
-    user, created = User.objects.get_or_create(
-        email=email,
-        defaults={
-            'username': _unique_username(username or email.split('@')[0]),
-            'first_name': full_name.split(' ')[0] if full_name else '',
-            'last_name': ' '.join(full_name.split(' ')[1:]) if full_name else '',
-            'is_email_verified': True,  # trusted — came from GB OAuth
-        }
-    )
+    # Find or create the requesting user
+    user, _ = _find_or_create_user(email, username, full_name)
 
     # Issue JWT
     refresh = RefreshToken.for_user(user)
 
-    return Response({
+    result = {
         'access': str(refresh.access_token),
         'refresh': str(refresh),
-        # Full user object matching LD's AuthState interface exactly
         'user': {
             'id': user.id,
             'email': user.email,
@@ -64,11 +82,18 @@ def gazabridge_sso_login(request):
             'preferred_language': user.preferred_language,
             'is_online': user.is_online,
         },
-    })
+    }
+
+    # If target email provided, find/create target and auto-add as contacts
+    if target_email:
+        target_user, _ = _find_or_create_user(target_email)
+        _auto_add_contact(user, target_user)
+        result['target_ld_id'] = target_user.id
+
+    return Response(result)
 
 
 def _unique_username(base: str) -> str:
-    """Ensure username is unique in LD by appending a number if needed."""
     username = base
     counter = 1
     while User.objects.filter(username=username).exists():
