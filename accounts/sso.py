@@ -29,7 +29,6 @@ def _find_or_create_user(email, username='', full_name=''):
 
 def _auto_add_contact(user_a, user_b):
     """Create mutual accepted contact between two users if not already exists."""
-    # Check both directions
     exists = Contact.objects.filter(
         sender=user_a, receiver=user_b
     ).exists() or Contact.objects.filter(
@@ -49,7 +48,7 @@ def _auto_add_contact(user_a, user_b):
 def gazabridge_sso_login(request):
     """
     Called by GazaBridge backend to auto-login/register a GB user in LinguaDuo.
-    Payload: { email, username, full_name, shared_secret, target_email (optional) }
+    Payload: { email, username, full_name, shared_secret, target_email (optional), preferred_language (optional) }
     Returns: { access, refresh, user, target_ld_id (optional) }
     """
     data = request.data
@@ -62,12 +61,18 @@ def gazabridge_sso_login(request):
     username = (data.get('username') or '').strip()
     full_name = (data.get('full_name') or '').strip()
     target_email = (data.get('target_email') or '').strip().lower()
+    preferred_language = (data.get('preferred_language') or 'en').strip()[:10]
 
     if not email:
         return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Find or create the requesting user
-    user, _ = _find_or_create_user(email, username, full_name)
+    user, created = _find_or_create_user(email, username, full_name)
+
+    # Set preferred_language only if new user OR still on default 'en' (never explicitly chosen)
+    if created or user.preferred_language == 'en':
+        user.preferred_language = preferred_language
+        user.save(update_fields=['preferred_language'])
 
     # Issue JWT
     refresh = RefreshToken.for_user(user)
